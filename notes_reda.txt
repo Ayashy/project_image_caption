@@ -1,0 +1,14 @@
+### Regularisation
+
+- I removed dropout Regularisation intill further enquiry
+
+### Initial lstm hidden state
+
+- We have 3 options: Initialise to 0 - Learn the first weights - Use random noise
+- This article goes into detail about it : https://r2rt.com/non-zero-initial-states-for-recurrent-neural-networks.html
+- Will use zero tensor for now.
+
+### Gating the attention_encodings
+
+- It is recommanded by the authors for some reason?!
+- Its a sigmoid(linear(Ht-1))*attention_encodings
