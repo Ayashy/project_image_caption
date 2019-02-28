@@ -15,7 +15,8 @@ class FlickrDataset(Dataset):
         self.caps_per_img=caps_per_img
 
         # Load captions
-        with open(os.path.join(data_folder, self.split + '_CAPTIONS.json'), 'r') as j:
+        #with open(os.path.join(data_folder, self.split + '_CAPTIONS.json'), 'r') as j:
+        with open(data_folder + '\\' + self.split + '_CAPTIONS.json', 'r') as j:
             self.captions = json.load(j)
 
         # Length of the dataset
@@ -28,7 +29,7 @@ class FlickrDataset(Dataset):
             self.split='TRAIN'
             
         ID=list(self.captions.keys())[i//self.caps_per_img]
-        img_path=self.data_folder+'/'+self.split+'_images/'+ID+'.pt'
+        img_path=self.data_folder+'\\'+self.split+'_images\\'+ID+'.pt'
         img=torch.load(img_path)
         
         caption = torch.Tensor(self.captions[ID]["caps"][i%2]).to(dtype=torch.int16)

@@ -6,6 +6,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from attention import Attention
 
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda:0" if use_cuda else "cpu")
+
 class Decoder(nn.Module):
     """
     Implements the decoder model. 
@@ -38,7 +41,7 @@ class Decoder(nn.Module):
         # A simple linear layer to compute the vocabulary scores from the hidden state
         self.scoring_layer = nn.Linear(features_len, wordmap_len)
 
-    def init_hidden_state(self, image_features):
+    def init_hidden_state(self, image_features, device):
         """
         Initialize the hidden state and cell state for each sentence.
         Using zero tensors for now, might change later.
@@ -50,8 +53,8 @@ class Decoder(nn.Module):
             - Hidden state : vector for initial hidden state
             - Cell state : vector for initial cell state
         """
-        h = torch.zeros((image_features.shape[0],image_features.shape[-1]))  # (batch_size, features_len)
-        c = torch.zeros((image_features.shape[0],image_features.shape[-1]))
+        h = torch.zeros((image_features.shape[0],image_features.shape[-1]), device=device)  # (batch_size, features_len)
+        c = torch.zeros((image_features.shape[0],image_features.shape[-1]), device=device)
         return h, c
 
     def forward(self, image_features, caps, caplens):
@@ -72,7 +75,6 @@ class Decoder(nn.Module):
 
         batch_size = image_features.size(0)
         lstm_len = image_features.size(-1)
-        wordmap_len = self.wordmap_len
 
         # Flatten image 14*14 -> 196
         image_features = image_features.view(batch_size, -1, lstm_len)
@@ -87,15 +89,15 @@ class Decoder(nn.Module):
         # Transforms the captions into embedding vectors
         embeddings = self.embedding(caps)  
         # Initialize LSTM  hidden and cell state
-        h, c = self.init_hidden_state(image_features)  
+        h, c = self.init_hidden_state(image_features,device)  
 
         # We won't decode at the <end> position, since we've finished generating as soon as we generate <end>
         # So, decoding lengths are actual lengths - 1
         decode_lengths = (caplens - 1).tolist()
 
         # Result tensors
-        scores = torch.zeros(batch_size, max(decode_lengths), self.wordmap_len)
-        weights = torch.zeros(batch_size, max(decode_lengths), num_pixels)
+        scores = torch.zeros(batch_size, max(decode_lengths), self.wordmap_len, device=device)
+        weights = torch.zeros(batch_size, max(decode_lengths), num_pixels, device=device)
 
         # At each time-step, decode by
         # attention-weighing the encoder's output based on the decoder's previous hidden state output

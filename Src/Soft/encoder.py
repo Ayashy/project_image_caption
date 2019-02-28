@@ -7,6 +7,7 @@ import numpy as np
 import torchvision.transforms as transforms
 from skimage.transform import resize
 
+
 class Encoder(nn.Module):
     """
     Encoder class to transform images into features. We're using the features from the last conv layer.
