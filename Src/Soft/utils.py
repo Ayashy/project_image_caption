@@ -8,6 +8,8 @@ import numpy as np
 from encoder import Encoder
 import torch
 
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda:0" if use_cuda else "cpu")
 
 def preprocess_flickr_data():
     """
@@ -19,6 +21,8 @@ def preprocess_flickr_data():
 
     The data is also split into train evaluate and test
     """
+    # Load VGG
+    enc = Encoder().to(device)
 
     min_frequency = 2
     max_cap_len=20
@@ -34,22 +38,43 @@ def preprocess_flickr_data():
     test_ids=[x.split('.')[0] for x in test_ids.split('\n')]
 
     # Generating proccessed images then storing them
-    for ID in train_ids[:20]:
-        image=proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg')
-        torch.save(image, './processed_data/train_images/'+ID+'.pt')
-        print('Train image',ID,'Generated')
-    for ID in eval_ids[:20]:
-        image=proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg')
-        torch.save(image, './processed_data/eval_images/'+ID+'.pt')
-        print('Validation Image',ID,'Generated')
-    for ID in test_ids[:20]:
-        image=proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg')
-        torch.save(image, './processed_data/test_images/'+ID+'.pt')
-        print('Test Image',ID,'Generated')
+    idx = 1
+    for ID in train_ids:
+        if ID != '':
+            image=proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg', enc)
+
+            image = image.cpu()
+            torch.save(image, './processed_data/train_images/'+ID+'.pt')
+            
+            if idx % 100 == 0:
+                print('Generated ', str(idx), 'th training image')
+            idx += 1
+            
+    idx = 1
+    for ID in eval_ids:
+        if ID != '':
+            image=proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg', enc)
+            image = image.cpu()
+            torch.save(image, './processed_data/eval_images/'+ID+'.pt')
+            
+            if idx % 100 == 0:
+                print('Generated ', str(idx), 'th validation image')
+            idx += 1
+            
+    idx = 1       
+    for ID in test_ids:
+        if ID != '':
+            image=proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg', enc)
+            image = image.cpu()
+            torch.save(image, './processed_data/test_images/'+ID+'.pt')
+            
+            if idx % 100 == 0:
+                print('Generated ', str(idx), 'th test image')
+            idx += 1
 
     # Loading captions
     data=load_doc('./raw_data/Flickr8k_text/Flickr8k.token.txt')
-    train_captions,eval_captions,test_captions=load_captions(data,train_ids,eval_ids,test_ids,caps_per_img)
+    train_captions,eval_captions,test_captions = load_captions(data,train_ids,eval_ids,test_ids,caps_per_img)
     
     # Generating the wordmap then saving it to file
     wordmap=generate_wordmap([train_captions,eval_captions,test_captions],min_frequency)
@@ -63,7 +88,7 @@ def preprocess_flickr_data():
     with open(os.path.join(output_folder, 'EVAL_CAPTIONS.json'), 'w') as j:
         json.dump(eval_captions, j)
     with open(os.path.join(output_folder, 'TEST_CAPTIONS.json'), 'w') as j:
-        json.dump(train_captions, j)
+        json.dump(test_captions, j)
 
 def generate_wordmap(splits,min_frequency):
     word_counter=Counter()
@@ -87,9 +112,15 @@ def process_captions(splits,wordmap,max_cap_len):
             caplens=[]
             for i,cap in enumerate(captions):
                 cap=cap.split()
-                caplens.append(len(cap))
-                cap=[wordmap['<start>']] + [wordmap.get(word, wordmap['<unk>']) for word in cap] + [
-                        wordmap['<end>']] + [wordmap['<pad>']] * (max_cap_len - len(cap))
+                
+                if len(cap) > max_cap_len:
+                    caplens.append(max_cap_len)
+                    cap = [wordmap['<start>']] + [wordmap.get(word, wordmap['<unk>']) for word in cap[:max_cap_len]] + [wordmap['<end>']]
+                else:
+                    caplens.append(len(cap))
+                    cap=[wordmap['<start>']] + [wordmap.get(word, wordmap['<unk>']) for word in cap] + [
+                            wordmap['<end>']] + [wordmap['<pad>']] * (max_cap_len - len(cap))
+                    
                 new_captions.append(cap)
             split[image]={'caps':new_captions,'caplens':caplens}
     return splits
@@ -136,17 +167,17 @@ def load_doc(filename):
 	file.close()
 	return text
 
-def proccess_image(path):
+def proccess_image(path, enc):
     img = io.imread(path)
     if len(img.shape) == 2:
         img = img[:, :, np.newaxis]
         img = np.concatenate([img, img, img], axis=2)
     img = resize(img, (256, 256))
     img = img.transpose(2, 0, 1)
-    img=torch.Tensor(img)
-    img=img.reshape(1,3,img.shape[1],img.shape[2])
-    enc=Encoder()
-    return enc.forward(img)
+    img = torch.Tensor(img)
+    img = img.reshape(1,3,img.shape[1],img.shape[2])
+    img = img.to(device)
+    return enc(img).cpu()
 
 
 # This func is only used for devoloppement purposes
