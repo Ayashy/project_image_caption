@@ -12,3 +12,49 @@
 
 - It is recommanded by the authors for some reason?!
 - Its a sigmoid(linear(Ht-1))*attention_encodings
+
+<start> a man holds a football <end> <pad> <pad> <pad>....
+9876 1 5 120 1 5406 9877 9878 9878 9878....
+
+
+
+- No fine tuning for vgg
+- No need for hard?!
+- Dropout = easy
+- Size LSTM = 256
+- Beam search = only test
+- Word embedding pretrained. Not sure if its better.
+- Optimizer adam best
+
+
+Model 0.1:
+
+- Dataset COCO et flikr30k
+- Dropout
+- Beam search
+
+Model 0.2:
+
+- hard
+
+Model 0.3 :
+
+- Teacher forcing
+
+Site web :
+
+- Potentielement
+
+Rapport :
+
+- Introduction
+- Description du modéle
+    - Encoder
+    - Decoder
+    - Attention soft
+    - Attention hard
+- Procédure d'entrainement
+    - Datasets
+- Procedure d'evaluation
+- Resultats
+- Conclusion

@@ -52,6 +52,7 @@ class Attention(nn.Module):
         tanh = self.tanh(merged)
         attention_weights = self.softmax(tanh).squeeze(2) 
         attention_features = (image_features * attention_weights.unsqueeze(2)).sum(dim=1) 
+        
 
         return attention_features, attention_weights
 

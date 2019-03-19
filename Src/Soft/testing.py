@@ -17,6 +17,7 @@ def train():
     """
 
     # Model parameters
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data_folder = './processed_data'  
     embedding_len = 512  
     attention_len = 512  
