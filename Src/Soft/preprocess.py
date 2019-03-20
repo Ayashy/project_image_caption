@@ -11,13 +11,14 @@ import torch
 from tqdm import tqdm
 from random import seed, choice, sample
 from scipy.misc import imread, imresize
+from os import walk
 
 
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
 
-def preprocess_flickr_data():
+def preprocess_flickr_data(source=None, target=None):
     """
     This function is used to generate input files from raw data files. It generates 3 types of files:
 
@@ -32,54 +33,54 @@ def preprocess_flickr_data():
 
     min_frequency = 2
     max_cap_len = 20
-    output_folder = './processed_data'
     caps_per_img = 2
 
+    if source is None:
+        source = 'raw_data'
+    if target is None:
+        target = 'processed_data'
+    image_folder = os.path.join(source, 'flickr_data')
+    text_folder = os.path.join(source, 'flickr_text')
+    output_folder = os.path.join(target, 'flickr')
+
     # Loading split IDs
-    train_ids = load_doc('./raw_data/Flickr8k_text/Flickr8k.trainImages.txt')
+    train_ids = load_doc(os.path.join(text_folder, 'Flickr8k.trainImages.txt'))
     train_ids = [x.split('.')[0] for x in train_ids.split('\n')]
-    eval_ids = load_doc('./raw_data/Flickr8k_text/Flickr8k.devImages.txt')
+    eval_ids = load_doc(os.path.join(text_folder, 'Flickr8k.devImages.txt'))
     eval_ids = [x.split('.')[0] for x in eval_ids.split('\n')]
-    test_ids = load_doc('./raw_data/Flickr8k_text/Flickr8k.testImages.txt')
+    test_ids = load_doc(os.path.join(text_folder, 'Flickr8k.testImages.txt'))
     test_ids = [x.split('.')[0] for x in test_ids.split('\n')]
 
     # Generating proccessed images then storing them
-    idx = 1
-    for ID in train_ids:
+
+    for idx,ID in enumerate(train_ids):
         if ID != '':
-            image = proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg', enc)
-
+            print(ID)
+            image = proccess_image(os.path.join(image_folder, ID+'.jpg'), enc)
             image = image.cpu()
-            torch.save(image, './processed_data/TRAIN_images/'+ID+'.pt')
-
+            torch.save(image, os.path.join(output_folder, 'TRAIN_images',ID+'.pt'))
             if idx % 100 == 0:
                 print('Generated ', str(idx), 'th training image')
-            idx += 1
 
-    idx = 1
-    for ID in eval_ids:
+    for idx,ID in enumerate(eval_ids):
         if ID != '':
-            image = proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg', enc)
+            image = proccess_image(os.path.join(image_folder, ID+'.jpg'), enc)
             image = image.cpu()
-            torch.save(image, './processed_data/EVAL_images/'+ID+'.pt')
-
+            torch.save(image, os.path.join(output_folder, 'EVAL_images',ID+'.pt'))
             if idx % 100 == 0:
                 print('Generated ', str(idx), 'th validation image')
-            idx += 1
 
-    idx = 1
-    for ID in test_ids:
+    for idx,ID in enumerate(test_ids):
         if ID != '':
-            image = proccess_image('./raw_data/Flickr8k_data/'+ID+'.jpg', enc)
+            image = proccess_image(os.path.join(image_folder, ID+'.jpg'), enc)
             image = image.cpu()
-            torch.save(image, './processed_data/TEST_images/'+ID+'.pt')
+            torch.save(image, os.path.join(output_folder, 'TEST_images',ID+'.pt'))
 
             if idx % 100 == 0:
                 print('Generated ', str(idx), 'th test image')
-            idx += 1
 
     # Loading captions
-    data = load_doc('./raw_data/Flickr8k_text/Flickr8k.token.txt')
+    data = load_doc(os.path.join(text_folder, 'Flickr8k.token.txt'))
     train_captions, eval_captions, test_captions = load_captions(
         data, train_ids, eval_ids, test_ids, caps_per_img)
 
@@ -175,8 +176,8 @@ def load_captions(data, train_ids, eval_ids, test_ids, caps_per_img):
 
 def load_doc(filename):
     """
-Helper function to load a file as a string
-"""
+    Helper function to load a file as a string
+    """
     file = open(filename, 'r')
     text = file.read()
     file.close()
@@ -198,7 +199,6 @@ def proccess_image(path, enc):
 
 # This func is only used for devoloppement purposes
 def reduce_dataset(image_path, caption_path, output_path):
-    from os import walk
     f = []
     for (dirpath, dirnames, filenames) in walk(image_path):
         f.extend(filenames)
@@ -214,19 +214,23 @@ def reduce_dataset(image_path, caption_path, output_path):
         json.dump(new_captions, j)
 
 
-def preprocess_coco_data():
+def preprocess_coco_data(source=None, target=None):
 
     # Parameters
-    image_folder= os.path.join('raw_data','Coco_data')
-    captions_per_image=3
-    min_word_freq=2
-    output_folder=os.path.join('processed_data','Coco')
-    max_len=100
+    if source is None:
+        source = 'raw_data'
+    if target is None:
+        target = 'processed_data'
+    image_folder = os.path.join(source, 'coco_data')
+    output_folder = os.path.join(target, 'coco')
+    captions_per_image = 3
+    min_word_freq = 2
+    max_len = 100
 
     # Load VGG
     enc = Encoder().to(device)
 
-    with open( os.path.join('raw_data','Coco_text','dataset_coco.json'), 'r') as j:
+    with open(os.path.join(source, 'coco_text', 'dataset_coco.json'), 'r') as j:
         data = json.load(j)
 
     # Read image paths and captions for each image
@@ -245,7 +249,7 @@ def preprocess_coco_data():
             word_freq.update(c['tokens'])
             if len(c['tokens']) <= max_len:
                 captions.append(c['tokens'])
-        
+
         if len(captions) == 0:
             continue
         path = os.path.join(image_folder, img['filepath'], img['filename'])
@@ -277,15 +281,15 @@ def preprocess_coco_data():
     with open(os.path.join(output_folder, 'WORDMAP.json'), 'w') as j:
         json.dump(word_map, j)
 
-    
     # Sample captions for each image, save images to HDF5 file, and captions and their lengths to JSON files
     seed(123)
     for impaths, imcaps, split in [(train_image_paths, train_image_captions, 'TRAIN'),
                                    (val_image_paths, val_image_captions, 'VAL'),
                                    (test_image_paths, test_image_captions, 'TEST')]:
-        print('Processing ',split,'data : ------------------------------')
+        print('Processing ', split, 'data : ------------------------------')
         if os.path.exists(os.path.join(output_folder, split + '_IMAGES_' + '.hdf5')):
-                os.remove(os.path.join(output_folder, split + '_IMAGES_' + '.hdf5'))
+            os.remove(os.path.join(output_folder,
+                                   split + '_IMAGES_' + '.hdf5'))
         with h5py.File(os.path.join(output_folder, split + '_IMAGES_' + '.hdf5'), 'a') as h:
             # Make a note of the number of captions we are sampling per image
             h.attrs['captions_per_image'] = captions_per_image
@@ -312,9 +316,8 @@ def preprocess_coco_data():
                 assert len(captions) == captions_per_image
 
                 # Save image to HDF5 file
-                images[i] =proccess_image(impaths[i], enc).cpu().detach()
-                print('Processed',split,'image number'+str(i))
-
+                images[i] = proccess_image(impaths[i], enc).cpu().detach()
+                print('Processed', split, 'image number'+str(i))
 
                 for j, c in enumerate(captions):
                     # Encode captions
@@ -332,13 +335,14 @@ def preprocess_coco_data():
                 captions_per_image == len(enc_captions) == len(caplens)
 
             # Save encoded captions and their lengths to JSON files
-            with open(os.path.join(output_folder, split + '_CAPTIONS_' +  '.json'), 'w') as j:
+            with open(os.path.join(output_folder, split + '_CAPTIONS_' + '.json'), 'w') as j:
                 json.dump(enc_captions, j)
 
-            with open(os.path.join(output_folder, split + '_CAPLENS_' +  '.json'), 'w') as j:
+            with open(os.path.join(output_folder, split + '_CAPLENS_' + '.json'), 'w') as j:
                 json.dump(caplens, j)
 
 
 if __name__ == "__main__":
-    #preprocess_flickr_data()
-    preprocess_coco_data()
+    # preprocess_flickr_data()
+    # preprocess_coco_data()
+    pass

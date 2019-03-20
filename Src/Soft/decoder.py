@@ -67,8 +67,6 @@ class Decoder(nn.Module):
         mean_encoder_out = image_features.mean(dim=1)
         h = self.init_h(mean_encoder_out).to(device)  # (batch_size, decoder_dim)
         c = self.init_c(mean_encoder_out).to(device)
-        h = torch.zeros((image_features.shape[0],image_features.shape[-1]))  # (batch_size, features_len)
-        c = torch.zeros((image_features.shape[0],image_features.shape[-1]))
 
         return h, c
 
@@ -138,10 +136,10 @@ class Decoder(nn.Module):
             attention_encoding, alpha = self.attention(
                 image_features[:k], h[:k])
 
-            """ # This gating scalar is supposed to improve learning
+            # This gating scalar is supposed to improve learning
             gate = self.sigmoid(self.f_beta(h[:k]))  # gating scalar, (batch_size_t, encoder_dim)
             attention_encoding = gate * attention_encoding
- """
+
             # Concatenate Previous word + features
             decode_input = torch.cat(
                 [embeddings[:k, t, :], attention_encoding], dim=1)

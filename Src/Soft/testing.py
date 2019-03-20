@@ -17,7 +17,6 @@ def train():
     """
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda:0" if use_cuda else "cpu")  
-
     # Model parameters
     data_folder = os.path.join('processed_data')
     embedding_len = 512  
@@ -50,7 +49,7 @@ def train():
     dataset=FlickrDataset(data_folder, 'DEV', caps_per_image)
     data_loader = torch.utils.data.DataLoader(
                 FlickrDataset(data_folder, 'DEV', caps_per_image),
-                batch_size=50, )
+                batch_size=5, )
 
     for epoch in range(1,15):
         print( '----------------------------------- Epoch',epoch,'----------------------------------')
