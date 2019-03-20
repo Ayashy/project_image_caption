@@ -47,9 +47,9 @@ def train():
 
     # Dataloaders are wrappers around datasets that help woth the learning.
     # Its not mandatory but its usefull so we might as well use it
-    dataset=FlickrDataset(data_folder, 'TEST', caps_per_image)
+    dataset=FlickrDataset(data_folder, 'DEV', caps_per_image)
     data_loader = torch.utils.data.DataLoader(
-                FlickrDataset(data_folder, 'TEST', caps_per_image),
+                FlickrDataset(data_folder, 'DEV', caps_per_image),
                 batch_size=50, )
 
     for epoch in range(1,15):
@@ -58,19 +58,18 @@ def train():
             caps = caps.to(device=device, dtype=torch.int64)               
             imgs, caplens = imgs.to(device), caplens.to(device)  
             #print( '----------------------------------- Batch',i,'----------------------------------')
-            print(imgs.shape)
             scores, caps_sorted, decode_lengths, alphas, sort_ind=decoder.forward(imgs, caps, caplens)
             # Remove the <start> word
             targets = caps_sorted[:, 1:]
 
             prediction=''
-            for line in scores[0]:
+            for line in scores[1]:
                 idx=line.argmax()
                 for key in word_map.keys():
                     if word_map[key]==idx:
                         prediction+=' '+str(key)
             caption=''
-            for line in caps[sort_ind[0], 1:caplens[sort_ind[0]]+1]:
+            for line in caps[sort_ind[1], 1:caplens[sort_ind[1]]+1]:
                 for key in word_map.keys():
                     if word_map[key]==line:
                         caption+=' '+str(key)
@@ -82,7 +81,7 @@ def train():
 
             # Calculate loss
             loss = criterion(scores, targets)
-            #print('loss : ',loss.item())
+            print('loss : ',loss.item())
             decoder_optimizer.zero_grad()
 
             loss.backward()

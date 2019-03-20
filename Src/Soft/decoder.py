@@ -9,9 +9,10 @@ from attention import Attention
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
+
 class Decoder(nn.Module):
     """
-    Implements the decoder model. 
+    Implements the decoder model.
     it's based on an lstm and uses attention.
     """
 
@@ -33,17 +34,23 @@ class Decoder(nn.Module):
         self.wordmap_len = wordmap_len
         self.dropout = dropout
 
-
+        # Linear layers to initialize states
+        self.init_h = nn.Linear(features_len, lstm_len)
+        self.init_c = nn.Linear(features_len, lstm_len)
         # Our attention model
-        self.attention = Attention(lstm_len, features_len, attention_len)
+        self.attention = Attention(lstm_len, attention_len, features_len)
         # Embedding model, it transforms each word vector into an embedding vector
-        self.embedding = nn.Embedding(wordmap_len, embedding_len)  
+        self.embedding = nn.Embedding(wordmap_len, embedding_len)
         # Dropout regularisation
         self.dropout = nn.Dropout(p=self.dropout)
         # LSTM model. We use LSTMCell and implement the loop manualy to use attention
-        self.lstm = nn.LSTMCell(embedding_len + lstm_len, features_len, bias=True) 
+        self.lstm = nn.LSTMCell(
+            embedding_len + features_len, lstm_len, bias=True)
         # A simple linear layer to compute the vocabulary scores from the hidden state
         self.scoring_layer = nn.Linear(features_len, wordmap_len)
+        # Sigmoid gate to improve learning
+        self.f_beta = nn.Linear(lstm_len, features_len)
+        self.sigmoid = nn.Sigmoid()
 
     def init_hidden_state(self, image_features, device):
         """
@@ -57,10 +64,23 @@ class Decoder(nn.Module):
             - Hidden state : vector for initial hidden state
             - Cell state : vector for initial cell state
         """
-        h = torch.zeros((image_features.shape[0],image_features.shape[-1]), device=device)  # (batch_size, features_len)
-        c = torch.zeros((image_features.shape[0],image_features.shape[-1]), device=device)
+        mean_encoder_out = image_features.mean(dim=1)
+        h = self.init_h(mean_encoder_out).to(device)  # (batch_size, decoder_dim)
+        c = self.init_c(mean_encoder_out).to(device)
+        h = torch.zeros((image_features.shape[0],image_features.shape[-1]))  # (batch_size, features_len)
+        c = torch.zeros((image_features.shape[0],image_features.shape[-1]))
+
         return h, c
 
+    def fine_tune_embeddings(self, fine_tune=True):
+        """
+        Allow fine-tuning of embedding layer? (Only makes sense to not-allow if using pre-trained embeddings).
+
+        :param fine_tune: Allow?
+        """
+        for p in self.embedding.parameters():
+            p.requires_grad = fine_tune
+            
     def forward(self, image_features, caps, caplens):
         """
         Forward propagation.
@@ -78,10 +98,10 @@ class Decoder(nn.Module):
         """
 
         batch_size = image_features.size(0)
-        lstm_len = image_features.size(-1)
+        encoder_dim = image_features.size(-1)
 
         # Flatten image 14*14 -> 196
-        image_features = image_features.view(batch_size, -1, lstm_len)
+        image_features = image_features.view(batch_size, -1, encoder_dim)
         num_pixels = image_features.size(1)
 
         # Sort the sentences by decreasing lenght, so we can decode only the k first sentences that haven't
@@ -89,19 +109,21 @@ class Decoder(nn.Module):
         caplens, sort_ind = caplens.squeeze(1).sort(dim=0, descending=True)
         image_features = image_features[sort_ind]
         caps = caps[sort_ind]
-        
+
         # Transforms the captions into embedding vectors
-        embeddings = self.embedding(caps)  
+        embeddings = self.embedding(caps)
         # Initialize LSTM  hidden and cell state
-        h, c = self.init_hidden_state(image_features,device)  
+        h, c = self.init_hidden_state(image_features, device)
 
         # We won't decode at the <end> position, since we've finished generating as soon as we generate <end>
         # So, decoding lengths are actual lengths - 1
         decode_lengths = (caplens - 1).tolist()
 
         # Result tensors
-        scores = torch.zeros(batch_size, max(decode_lengths), self.wordmap_len, device=device)
-        weights = torch.zeros(batch_size, max(decode_lengths), num_pixels, device=device)
+        scores = torch.zeros(batch_size, max(decode_lengths),
+                             self.wordmap_len, device=device)
+        weights = torch.zeros(batch_size, max(
+            decode_lengths), num_pixels, device=device)
 
         # At each time-step, decode by
         # attention-weighing the encoder's output based on the decoder's previous hidden state output
@@ -113,16 +135,22 @@ class Decoder(nn.Module):
             k = sum([l > t for l in decode_lengths])
 
             # We first generate the attention weighted images. Alpha is the weights of the attention model.
-            attention_encoding, alpha = self.attention(image_features[:k],h[:k])
+            attention_encoding, alpha = self.attention(
+                image_features[:k], h[:k])
 
+            """ # This gating scalar is supposed to improve learning
+            gate = self.sigmoid(self.f_beta(h[:k]))  # gating scalar, (batch_size_t, encoder_dim)
+            attention_encoding = gate * attention_encoding
+ """
             # Concatenate Previous word + features
-            decode_input=torch.cat([embeddings[:k, t, :],attention_encoding], dim=1)
-            
+            decode_input = torch.cat(
+                [embeddings[:k, t, :], attention_encoding], dim=1)
+
             # We run the LSTM cell using the decode imput and (hidden,cell) states
-            h, c = self.lstm(decode_input, (h[:k],c[:k]) ) 
+            h, c = self.lstm(decode_input, (h[:k], c[:k]))
 
             # The hidden state is transformed into vocabulary scores by a simple linear layer
-            score = self.scoring_layer(h)  # (k, wordmap_len)
+            score = self.scoring_layer(self.dropout(h) )  # (k, wordmap_len)
 
             # Finaly we store the scores and weights
             scores[:k, t, :] = score
