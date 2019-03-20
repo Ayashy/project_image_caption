@@ -15,9 +15,11 @@ def train():
     """
     Training and validation.
     """
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda:0" if use_cuda else "cpu")  
 
     # Model parameters
-    data_folder = './processed_data'  
+    data_folder = os.path.join('processed_data')
     embedding_len = 512  
     attention_len = 512  
     lstm_len = 512  
@@ -35,6 +37,7 @@ def train():
                         embedding_len=embedding_len,
                         features_len=lstm_len,
                         wordmap_len=len(word_map))
+    decoder = decoder.to(device)
     # We need an optimiser to update the model weights
     grad_params=filter(lambda p: p.requires_grad, decoder.parameters())
     decoder_optimizer = torch.optim.Adam(params=grad_params, lr=learning_rate)
@@ -44,17 +47,19 @@ def train():
 
     # Dataloaders are wrappers around datasets that help woth the learning.
     # Its not mandatory but its usefull so we might as well use it
-    dataset=FlickrDataset(data_folder, 'DEV', caps_per_image)
+    dataset=FlickrDataset(data_folder, 'TEST', caps_per_image)
     data_loader = torch.utils.data.DataLoader(
-                FlickrDataset(data_folder, 'DEV', caps_per_image),
-                batch_size=5, )
+                FlickrDataset(data_folder, 'TEST', caps_per_image),
+                batch_size=50, )
 
     for epoch in range(1,15):
         print( '----------------------------------- Epoch',epoch,'----------------------------------')
         for i,(imgs,caps,caplens) in enumerate(data_loader):
+            caps = caps.to(device=device, dtype=torch.int64)               
+            imgs, caplens = imgs.to(device), caplens.to(device)  
             #print( '----------------------------------- Batch',i,'----------------------------------')
-
-            scores, caps_sorted, decode_lengths, alphas, sort_ind=decoder.forward(imgs, caps.to(dtype=torch.int64), caplens)
+            print(imgs.shape)
+            scores, caps_sorted, decode_lengths, alphas, sort_ind=decoder.forward(imgs, caps, caplens)
             # Remove the <start> word
             targets = caps_sorted[:, 1:]
 

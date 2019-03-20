@@ -66,7 +66,6 @@ def print_caption(caps, caplens, word_map):
 '''
 def evaluateRandomly(_dataset, decoder, word_map, n=10):
     caps_per_img = _dataset.caps_per_img
-    decoder = decoder.to(device)
     img_indexes = np.random.randint(0, len(_dataset)//caps_per_img, n)
     
     for img_idx in img_indexes:
@@ -81,7 +80,6 @@ def evaluateRandomly(_dataset, decoder, word_map, n=10):
         prediction, caption = predict(decoder, img, caps, caplens, word_map)
         print('Predicted : ', prediction)
         
-    decoder = decoder.cpu()
      
 
 def beam_search():
@@ -157,7 +155,6 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
     batch_sz = 100
     data_loader = data.DataLoader(img_subset, batch_size = batch_sz)     # Limit batch size for CUDA memory
     
-    decoder = decoder.to(device)
     for i, (imgs, caps, caplens) in enumerate(data_loader):           
         caps = caps.to(device=device, dtype=torch.int64)
         imgs, caplens = imgs.to(device), caplens.to(device)

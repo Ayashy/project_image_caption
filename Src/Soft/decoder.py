@@ -15,7 +15,7 @@ class Decoder(nn.Module):
     it's based on an lstm and uses attention.
     """
 
-    def __init__(self, attention_len, embedding_len, features_len, wordmap_len, lstm_len=512):
+    def __init__(self, attention_len, embedding_len, features_len, wordmap_len, lstm_len=512, dropout=0.5):
         """
         Params:
             - attention_len: size of attention network
@@ -31,11 +31,15 @@ class Decoder(nn.Module):
         self.embedding_len = embedding_len
         self.features_len = features_len
         self.wordmap_len = wordmap_len
+        self.dropout = dropout
+
 
         # Our attention model
         self.attention = Attention(lstm_len, features_len, attention_len)
         # Embedding model, it transforms each word vector into an embedding vector
         self.embedding = nn.Embedding(wordmap_len, embedding_len)  
+        # Dropout regularisation
+        self.dropout = nn.Dropout(p=self.dropout)
         # LSTM model. We use LSTMCell and implement the loop manualy to use attention
         self.lstm = nn.LSTMCell(embedding_len + lstm_len, features_len, bias=True) 
         # A simple linear layer to compute the vocabulary scores from the hidden state

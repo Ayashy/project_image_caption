@@ -104,8 +104,8 @@ class Trainer:
         output :    show training loss
                     update decoder paramaters
     ''' 
-    def trainNet(self,_dataset, dataLoader, decoder, loss_fn, max_epoch,
-                 print_every=10, test_every=50000,plot_every=10):
+    def trainNet(self,_dataset, dataLoader, decoder, loss_fn,word_map, max_epoch,
+                 print_every=10, test_every=10,plot_every=10):
                 
         start = time.time()
         
@@ -118,9 +118,11 @@ class Trainer:
     
         decoder  = decoder.to(self.device)      # Pass model to device (GPU is available)
     
-        for n_iter in range(max_iter):
+        for epoch in range(1,max_epoch):
             # Iterating through batches
             for i, (imgs, caps, caplens) in enumerate(dataLoader):
+                print('Batch',i,'/',len(dataLoader))
+
                 caps = caps.to(device=self.device, dtype=torch.int64)               # Pass data to device (same as decoder)
                 imgs, caplens = imgs.to(self.device), caplens.to(self.device)       # Pass data to device 
             
@@ -128,35 +130,19 @@ class Trainer:
                 print_loss_total += loss
                 plot_loss_total += loss
         
-                if epoch % print_every == 0:   # Print advancement of the training (time spent and remaining)
-                    print_loss_avg = print_loss_total / print_every
-                    print_loss_total = 0
-                    print('%s (%d %d%%) %.4f' % (timeSince(start, (epoch-start_epoch) / max_epoch),
-                                                 (epoch-start_epoch), (epoch-start_epoch) / max_epoch * 100, print_loss_avg))
-                    
-                if epoch % test_every == 0:
-                    print('\nRandom translations :')
-                    evaluate.evaluateRandomly(_dataset, decoder, n=5)
-        
-                if epoch % plot_every == 0:    # Loss curve is smoothed : averaged on <print_every> iterations
-                    plot_loss_avg = plot_loss_total / plot_every
-                    self.plot_losses.append(plot_loss_avg)
-                    plot_loss_total = 0
-                    
-                epoch += 1
-                
-                del imgs, caps, caplens
-                
-                if (epoch - start_epoch >= max_epoch):
-                    break 
-                
-            if (epoch - start_epoch >= max_epoch):
-                    break
+            print_loss_avg = print_loss_total / print_every
+            print_loss_total = 0
+            print('Epoch',epoch,'/',max_epoch,'   -   Loss =',print_loss_avg)
+            
+            print('\nRandom translations :')
+            evaluate.evaluateRandomly(_dataset, decoder,word_map, n=1)
     
-        decoder = decoder.cpu()
-    
-        self.epoch = epoch
-        showPlot(self.plot_losses)      # Print training loss history
+            if epoch % plot_every == 0:    # Loss curve is smoothed : averaged on <print_every> iterations
+                plot_loss_avg = plot_loss_total / plot_every
+                self.plot_losses.append(plot_loss_avg)
+                plot_loss_total = 0
+                                
+        #showPlot(self.plot_losses)      # Print training loss history
 
 
 

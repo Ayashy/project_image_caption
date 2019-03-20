@@ -61,4 +61,6 @@ if __name__ == "__main__":
     image=image.permute(2,0,1).reshape(1,3,image.shape[0],image.shape[1])
     print(encoder.forward(image).shape)
 
+    
+
 
