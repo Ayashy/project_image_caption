@@ -10,6 +10,7 @@ import torch
 from torch.utils import data
 
 from nltk.translate.bleu_score import sentence_bleu
+from nltk.translate.bleu_score import corpus_bleu
 
 from flickr_dataset import tens_to_word
 from decoder import decode 
@@ -161,7 +162,10 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
     batch_sz = 100
     data_loader = data.DataLoader(img_subset, batch_size = batch_sz)     # Limit batch size for CUDA memory
     
+    limitation_words = [word_map['<start>'], word_map['<end>'], word_map['<pad>']]
     decoder = decoder.to(device)
+    refs = list()
+    preds = list()
     for i, (imgs, caps, caplens) in enumerate(data_loader):           
         caps = caps.to(device=device, dtype=torch.int64)
         imgs, caplens = imgs.to(device), caplens.to(device)
@@ -170,49 +174,41 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
         # to further accelerate computation on GPU
         with torch.no_grad():
             scores, caps, caplens, decode_lengths, attn_weights = decode(decoder, imgs, caps, caplens, 20, word_map, False, False)
-    
+            pred = scores.argmax(dim=2)
+            preds += [[x.item() for x in pred[j] if x not in limitation_words] for j in range(scores.size(0))]
+            
+            
         for img_idx in range(i*batch_sz,(i+1)*batch_sz):
             if img_idx > 1 and img_idx % 100 == 0:
                 print('evaluating ', str(img_idx), 'th image')
                     
             # Output every caption of the image as str    
-            ref = [[]]
+            ref = list()
             for cap_idx in range(caps_per_img):
                 idx = img_idx*caps_per_img + cap_idx
                 img, caps, caplens = _dataset[idx]
+                this_ref = [x.item() for x in caps if x not in limitation_words]
+                ref.append(this_ref)
                 
-                img, caps, caplens = img.unsqueeze(0), caps.unsqueeze(0), caplens.unsqueeze(0)
-                caption = tens_to_word(caps, caplens, word_map)            
-                ref.append(caption.split(' '))
+            refs.append(ref)
             
-            # Predict caption with model as str (from previously calculated scores)
-            prediction=''
-            for line in scores[img_idx - i*batch_sz]:
-                idx=line.argmax()
-                for key in word_map.keys():
-                    if word_map[key]==idx:
-                        prediction += ' ' + str(key)
-                        if str(key) == '<end>':
-                            break
-            pred = prediction.split(' ')
-            
-            # Compute BLEU score of the image from ref. captions (ref) and predictions (pred)   
-            if BLEU_idx == 0:   # Cumulated 4-gram BLEU score
-                BLEU += sentence_bleu(ref, pred)      # Score = average of every sentence
+    # Compute BLEU score of the image from ref. captions (ref) and predictions (pred)   
+    if BLEU_idx == 0:   # Cumulated 4-gram BLEU score
+        BLEU += corpus_bleu(refs, preds)      # Score = average of every sentence
+        
+    elif BLEU_idx == 1: # BLEU-1
+        BLEU += corpus_bleu(refs, preds, weights=(1,0,0,0))      
+        
+    elif BLEU_idx == 1: # BLEU-2
+        BLEU += corpus_bleu(refs, preds, weights=(.5,.5,0,0))      
+        
+    elif BLEU_idx == 1: # BLEU-3
+        BLEU += corpus_bleu(refs, preds, weights=(.33,.33,.33,0))      
+        
+    elif BLEU_idx == 1: # BLEU-4
+        BLEU += corpus_bleu(refs, preds, weights=(.25,.25,.25,.25))      
                 
-            elif BLEU_idx == 1: # BLEU-1
-                BLEU += sentence_bleu(ref, pred, weights=(1,0,0,0))      
-                
-            elif BLEU_idx == 1: # BLEU-2
-                BLEU += sentence_bleu(ref, pred, weights=(0,1,0,0))      
-                
-            elif BLEU_idx == 1: # BLEU-3
-                BLEU += sentence_bleu(ref, pred, weights=(0,0,1,0))      
-                
-            elif BLEU_idx == 1: # BLEU-4
-                BLEU += sentence_bleu(ref, pred, weights=(0,0,0,1))      
-                
-    BLEU /= (len(_dataset) + 1e-19)
+    #BLEU /= (len(img_subset) + 1e-19)     # Different from len(_dataset) !!
     
     if BLEU_idx == 0:
         bleu_str = ''
@@ -221,7 +217,7 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
         
     print ('\nBLEU' + bleu_str + ' score : ', str(BLEU))
  
-    return BLEU   
+    return refs, preds, BLEU   
     
     
     
