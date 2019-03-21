@@ -40,10 +40,11 @@ with open(word_map_file, 'r') as j:
     
     
 #%% _____________________ Preparing data for training _____________________ 
-caps_per_image = 3
+caps_per_image_training = 3
+caps_per_image_test     = 3
 
-datasets = {'training' : FlickrDataset(path + data_folder, 'TRAIN', caps_per_image),
-            'test'     : FlickrDataset(path + data_folder, 'TEST', caps_per_image)
+datasets = {'training' : FlickrDataset(path + data_folder, 'TRAIN', caps_per_image_training),
+            'test'     : FlickrDataset(path + data_folder, 'TEST', caps_per_image_test)
             }
 
 batch_params = {'batch_size': 16, 'shuffle':True}
@@ -51,54 +52,72 @@ data_loader = data.DataLoader(datasets['training'], **batch_params)
 
 #%% _____________________ Initialize model _____________________  
 
-model_size = {'attention_len':512, 
-              'embedding_len':256,
-              'features_len': 512,
-              'lstm_len':512,
-              'wordmap_len':len(word_map)
+model_size = {'nb_annot_vec':16*16,         # Fixed = dimensions of VGG features map
+              'attention_len':1024,          # Number of neurons in the attention model
+              'embedding_len':100,          # Dimension of the word embedding
+              'lstm_len':1024,              # Number of neurons of in hidden state of the LSTM
+              'initSize':128,               # Number of neurons in the NN that initialize hidden state of the LSTM
+              'wordmap_len':len(word_map)   # Fixed = number of words in the word map
               }
-    
-decoder1 = decoder.Decoder(**model_size)
+
+decoder10 = decoder.Decoder(**model_size)
 
 
 #%% _____________________ Training model _____________________
 
 loss_fn = nn.CrossEntropyLoss()
 
-lr, max_epoch = 1E-3, 1000
-trainer = Trainer(device, lr, decoder1)
-trainer.trainNet(datasets['training'], data_loader, decoder1, loss_fn, max_epoch)
+lr, max_epoch = 1e-2, 2000
+trainer = Trainer(device, lr, decoder10)
+trainer.trainNet(datasets['training'], data_loader, word_map, decoder10, loss_fn, max_epoch)
+
+
+
+
+
+trainer.learning_rate  = 1e-3
+trainer.trainNet(datasets['training'], data_loader, word_map, decoder10, loss_fn, max_epoch=1000)
 
 trainer.learning_rate  = 1e-4
-trainer.trainNet(datasets['training'], data_loader, decoder1, loss_fn, max_epoch=1000)
+trainer.trainNet(datasets['training'], data_loader, word_map, decoder10, loss_fn, max_epoch=2000)
 
 trainer.learning_rate  = 5e-5
-trainer.trainNet(datasets['training'], data_loader, decoder1, loss_fn, max_epoch=500)
+trainer.trainNet(datasets['training'], data_loader, word_map, decoder9, loss_fn, max_epoch=1000)
+
+# This one 500 iterations at 5e-5 was too much (increased loss)
+trainer.learning_rate  = 5e-5
+trainer.trainNet(datasets['training'], data_loader, word_map, decoder9, loss_fn, max_epoch=500)
 
 trainer.learning_rate  = 1e-5
-trainer.trainNet(datasets['training'], data_loader, decoder1, loss_fn, max_epoch=600)
+trainer.trainNet(datasets['training'], data_loader, word_map, decoder9, loss_fn, max_epoch=1000)
 
+# Final iterations didnt really decreased the loss either
 trainer.learning_rate  = 1e-6
-trainer.trainNet(datasets['training'], data_loader, decoder1, loss_fn, max_epoch=1000)
-
-trainer.learning_rate  = 1e-7
-trainer.trainNet(datasets['training'], data_loader, decoder1, loss_fn, max_epoch=5000)
+trainer.trainNet(datasets['training'], data_loader, word_map, decoder9, loss_fn, max_epoch=500)
 
 #%% _____________________ Evaluating model _____________________
 
-evaluate.evaluateRandomly(datasets['training'], decoder1, word_map, n=5)
-evaluate.evaluateRandomly(datasets['test'], decoder1, word_map, n=5)
+evaluate.evaluateRandomly(datasets['training'], decoder10, word_map, n=5)
+evaluate.evaluateRandomly(datasets['test'], decoder10, word_map, n=5)
 
 datasets['test'] = FlickrDataset(path + data_folder, 'TEST', 1)  # Only 1 cap per image, because BLEU computation is slow
-BLEU_1_score = evaluate.computeBLEU(datasets['test'], decoder1, word_map, BLEU_idx = 1)
+BLEU_1_score = evaluate.computeBLEU(datasets['test'], decoder10, word_map, BLEU_idx = 1)
 
 #%% _____________________ Saving model _____________________
 
-save_load.save_all(1, decoder1, trainer)
-
+save_load.save_all(10, decoder10, trainer)
+ 
+    
 #%% _____________________ Loading model _____________________
 
-decoder1 = decoder.Decoder(**model_size)
-trainer = save_load.load_all(1, decoder1)
-
+model_size_load = {'nb_annot_vec':16*16,         # Fixed = dimensions of VGG features map
+              'attention_len':1024,          # Number of neurons in the attention model
+              'embedding_len':100,          # Dimension of the word embedding
+              'lstm_len':1024,               # Number of neurons of in hidden state of the LSTM
+              'initSize':128,               # Number of neurons in the NN that initialize hidden state of the LSTM
+              'wordmap_len':len(word_map)   # Fixed = number of words in the word map
+              }
+decoder10 = decoder.Decoder(**model_size_load)
+trainer2 = save_load.load_all(10, decoder10)
+#trainer.decoder_optimizer.load_state_dict(trainer2.decoder_optimizer.state_dict())
 

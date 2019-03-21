@@ -11,6 +11,9 @@ from torch.utils import data
 
 from nltk.translate.bleu_score import sentence_bleu
 
+from flickr_dataset import tens_to_word
+from decoder import decode 
+
 use_cuda = torch.cuda.is_available()
 device = torch.device("cuda:0" if use_cuda else "cpu")
 
@@ -23,48 +26,49 @@ device = torch.device("cuda:0" if use_cuda else "cpu")
         output:     prediction      caption generated with model (string)
                     caption         reference caption of the image (string)
 '''
-def predict(decoder, img, caps, caplens, word_map): 
+def predict(decoder, img, caps, caplens, word_map, teacher_forcing=False): 
     caps = caps.to(device=device, dtype=torch.int64)
     img, caplens = img.to(device), caplens.to(device)
     
     with torch.no_grad():
-        scores, caps_sorted, decode_lengths, alphas, sort_ind = decoder(img, caps, caplens)
+        scores, caps, caplens, decode_lengths, attn_weights = decode(decoder, img, caps, 
+                                                                     caplens, 20, word_map, teacher_forcing, False)
 
         prediction=''
+        isEnded = False
         for line in scores[0]:
             idx=line.argmax()
             for key in word_map.keys():
                 if word_map[key]==idx:
-                    prediction += ' ' + str(key)
+                    next_word = str(key)
+                    if next_word == '<pad>':   # Do not print pad
+                        next_word = ''
+                    elif next_word == '<end>': # Do not prind <end> if more than one
+                        if isEnded:
+                            next_word = ''
+                        else:
+                            isEnded = True
+                    elif next_word == '<unk>': # Look for the 2nd highest word
+                        idx = torch.sort(line)[1]
+                        for key in word_map.keys():
+                            if word_map[key]==idx:
+                                next_word = str(key)
+                                
+                    prediction += ' ' + next_word
 
-        caption = print_caption(caps, caplens, word_map)      
-        '''
-        caption=''
-        for line in caps[sort_ind[0], 1:caplens[sort_ind[0]]+1]:
-            for key in word_map.keys():
-                if word_map[key]==line:
-                    caption += ' ' + str(key)
-        '''
+        caption = tens_to_word(caps, caplens, word_map)      
             
         return prediction, caption
-
-def print_caption(caps, caplens, word_map):
-    caption=''
-    for line in caps[0, 1:caplens[0]+1]:
-        for key in word_map.keys():
-            if word_map[key]==line:
-                caption += ' ' + str(key)
-
-    return caption
+    
 
 ''' Randomly select a few images, and compare predicted caption to references caption
         input :     _dataset        FlickrDataset (training, validation or test)
                     decoder         Decoder model
                     n               Number of random images to predict and compare
                     
-        output:     print prediction and references
+        output:     print prediction and references.
 '''
-def evaluateRandomly(_dataset, decoder, word_map, n=10):
+def evaluateRandomly(_dataset, decoder, word_map, n=10, teacher_forcing=False):
     caps_per_img = _dataset.caps_per_img
     decoder = decoder.to(device)
     img_indexes = np.random.randint(0, len(_dataset)//caps_per_img, n)
@@ -75,10 +79,10 @@ def evaluateRandomly(_dataset, decoder, word_map, n=10):
             idx = img_idx*caps_per_img + cap_idx
             img, caps, caplens = _dataset[idx]
             img, caps, caplens = img.unsqueeze(0), caps.unsqueeze(0), caplens.unsqueeze(0)
-            caption = print_caption(caps, caplens, word_map)        
+            caption = tens_to_word(caps, caplens, word_map)        
             print('>', caption)
             
-        prediction, caption = predict(decoder, img, caps, caplens, word_map)
+        prediction, caption = predict(decoder, img, caps, caplens, word_map, teacher_forcing)
         print('Predicted : ', prediction)
         
     decoder = decoder.cpu()
@@ -165,7 +169,7 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
         # Calculating the model scores of every img in the dataset in one batch
         # to further accelerate computation on GPU
         with torch.no_grad():
-            scores, caps_sorted, decode_lengths, alphas, sort_ind = decoder(imgs, caps, caplens)
+            scores, caps, caplens, decode_lengths, attn_weights = decode(decoder, imgs, caps, caplens, 20, word_map, False, False)
     
         for img_idx in range(i*batch_sz,(i+1)*batch_sz):
             if img_idx > 1 and img_idx % 100 == 0:
@@ -178,7 +182,7 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
                 img, caps, caplens = _dataset[idx]
                 
                 img, caps, caplens = img.unsqueeze(0), caps.unsqueeze(0), caplens.unsqueeze(0)
-                caption = print_caption(caps, caplens, word_map)            
+                caption = tens_to_word(caps, caplens, word_map)            
                 ref.append(caption.split(' '))
             
             # Predict caption with model as str (from previously calculated scores)
@@ -188,6 +192,8 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
                 for key in word_map.keys():
                     if word_map[key]==idx:
                         prediction += ' ' + str(key)
+                        if str(key) == '<end>':
+                            break
             pred = prediction.split(' ')
             
             # Compute BLEU score of the image from ref. captions (ref) and predictions (pred)   
@@ -206,14 +212,14 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
             elif BLEU_idx == 1: # BLEU-4
                 BLEU += sentence_bleu(ref, pred, weights=(0,0,0,1))      
                 
-        BLEU /= (len(_dataset) + 1e-19)
+    BLEU /= (len(_dataset) + 1e-19)
+    
+    if BLEU_idx == 0:
+        bleu_str = ''
+    else:
+        bleu_str = '-' + str(BLEU_idx)
         
-        if BLEU_idx == 0:
-            bleu_str = ''
-        else:
-            bleu_str = '-' + str(BLEU_idx)
-            
-        print ('\nBLEU' + bleu_str + ' score : ', str(BLEU))
+    print ('\nBLEU' + bleu_str + ' score : ', str(BLEU))
  
     return BLEU   
     

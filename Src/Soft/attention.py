@@ -22,9 +22,9 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
 
         # Simple linear layer to project the encoder features
-        self.image_layer = nn.Linear(features_len, 1) 
+        self.image_layer = nn.Linear(features_len, 1, bias=False) 
         # Simple linear layer to project the hidden state 
-        self.hidden_layer = nn.Linear(lstm_len, 1)  
+        self.hidden_layer = nn.Linear(lstm_len, 1, bias=False)  
         # A Tanh layer
         self.tanh = nn.Tanh()
         # Simple linear layer to merge the two vectors
@@ -39,13 +39,17 @@ class Attention(nn.Module):
                         Si=tanh(Wc*C+Wx*Xi) , weights=softmax(si)
 
         Params:
-            - image_features : vector of image features (batch_size,14,14,512)
+            - image_features : vector of image features (batch_size,14x14,512)
             - hidden_state : vector Ht-1 previous hidden state (batch_size,lstm_len)
 
         Output:
             - attention_features : weights*features (batchsize,lstm_len)
             - attention_weights : weights computed with softmax (batchsize,nb_image_sections=14*14)
         """
+        
+        ''' >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+        DO SOME BMM (batch matrix products) to multiply "image_layer" with each of 196 annotation vectors 
+        >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> '''
         features = self.image_layer(image_features)  
         hidden = self.hidden_layer(hidden_state)  
         merged = features + hidden.unsqueeze(1)

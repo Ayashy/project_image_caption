@@ -16,10 +16,8 @@ from torch import optim
 from torch.nn.utils.rnn import pack_padded_sequence
 
 
+from decoder import decode
 import evaluate  # To show translation along training
-
-SOS_token = 0
-EOS_token = 1
 
 teacher_forcing_ratio = 0.5
 
@@ -30,11 +28,12 @@ class Trainer:
                     plot_losses     history of training loss
                     optimizer       decoder model optimizer, to resume training later
     '''
-    def __init__(self, device, learning_rate, decoder):
+    def __init__(self, device, learning_rate, decoder, teacher_forcing_ratio=0.5):
         self.device = device
         self.learning_rate = learning_rate
         self.plot_losses = []
         self.decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
+        self.teacher_forcing_ratio = teacher_forcing_ratio
         self.epoch = 1
 
     ''' Performs an update of the model (decoder) parameters for a given input batch
@@ -47,52 +46,46 @@ class Trainer:
         output:     loss            loss value for the given batch
                     update decoder paramaters
     '''    
-    def iter_training(self, imgs, caps, caplens, decoder, loss_fn):
-           
+    def iter_training(self, imgs, caps, caplens, decoder, loss_fn, word_map):
+        max_cap_len = 20  
+        
         decoder_optimizer = self.decoder_optimizer 
         decoder_optimizer.zero_grad()
         
-        use_teacher_forcing = True if random.random() < teacher_forcing_ratio else False
-        loss = 0.
+        teacher_forcing = True if random.random() < self.teacher_forcing_ratio else False
+        total_loss = 0.
     
-        ''' Without teacher forcing '''
-        scores, caps_sorted, decode_lengths, alphas, sort_ind = decoder(imgs, caps, caplens)
-        targets = caps_sorted[:, 1:]
-        # Remove timesteps that we didn't decode at, or are pads
-        # pack_padded_sequence is an easy trick to do this        
-        scores, _ = pack_padded_sequence(scores, decode_lengths, batch_first=True)
-        targets, _ = pack_padded_sequence(targets, decode_lengths, batch_first=True)
+        ''' Decoding entire sentence '''
+        batch_size = imgs.size(0)
         
-        loss = loss_fn(scores, targets)
+        SOS_token = word_map['<start>']
+        output_word = decoder.initCaption(SOS_token, batch_size)
+        decode_lengths = (max_cap_len + 1)*torch.ones(batch_size, dtype=torch.long, device=self.device)
+        h, c = decoder.init_hidden_state(imgs,self.device)
+      
+        # At each time-step, decode by
+        # attention-weighing the encoder's output based on the decoder's previous hidden state output
+        # then generate a new word in the decoder with the previous word and the attention weighted encoding
+        for t in range(1,max_cap_len + 1):
+            if teacher_forcing:
+                output_word = caps[:,t-1].squeeze()            
+            score, word, h, c, weights = decoder(imgs, output_word, h, c)
+            target = caps[:,t]
             
-        '''
-        if use_teacher_forcing:
-            # Teacher forcing: Feed the target as the next input
-            for di in range(target_length):
-                decoder_output, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_hidden, 
-                                                                            encoder_outputs, batch_sz)
-                loss += loss_fn(decoder_output, target_tensor[di,:])
-                decoder_input = target_tensor[di,:]  # Teacher forcing
-    
-        else:
-            # Without teacher forcing: use its own predictions as the next input
-            for di in range(target_length):
-                decoder_output, decoder_hidden, decoder_attention = decoder(decoder_input, decoder_hidden, 
-                                                                            encoder_outputs, batch_sz)
-                topv, topi = decoder_output.topk(1)
-                decoder_input = topi.squeeze().detach()  # detach from history as input
-    
-                loss += loss_fn(decoder_output, target_tensor[di,:])
-                #if decoder_input.item() == EOS_token:
-                #    break
-        '''
-        loss.backward()
-    
+            loss = loss_fn(score, target)
+            total_loss += loss
+            loss.backward(retain_graph=True)
+        
+        total_loss.backward()
         decoder_optimizer.step()
+        
+        decoder_optimizer.zero_grad()
+        del imgs, caps, caplens, decode_lengths
+        torch.cuda.empty_cache()
         
         self.decoder_optimizer = decoder_optimizer
     
-        return loss.item()
+        return total_loss.item()
 
     ''' Performs model training
         input :     _dataset        FlickrDataset used for training
@@ -104,8 +97,8 @@ class Trainer:
         output :    show training loss
                     update decoder paramaters
     ''' 
-    def trainNet(self,_dataset, dataLoader, decoder, loss_fn, max_epoch,
-                 print_every=10, test_every=50000,plot_every=10):
+    def trainNet(self,_dataset, dataLoader, word_map, decoder, loss_fn, max_epoch,
+                 print_every=40, test_every=50000,plot_every=20):
                 
         start = time.time()
         
@@ -115,7 +108,10 @@ class Trainer:
         max_iter    = 10000           # Precaution
         epoch       = self.epoch
         start_epoch = self.epoch - 1
-    
+        
+        for g in self.decoder_optimizer.param_groups:
+            g['lr'] = self.learning_rate
+            
         decoder  = decoder.to(self.device)      # Pass model to device (GPU is available)
     
         for n_iter in range(max_iter):
@@ -124,7 +120,7 @@ class Trainer:
                 caps = caps.to(device=self.device, dtype=torch.int64)               # Pass data to device (same as decoder)
                 imgs, caplens = imgs.to(self.device), caplens.to(self.device)       # Pass data to device 
             
-                loss = self.iter_training(imgs, caps, caplens, decoder, loss_fn)    # Update model parameters
+                loss = self.iter_training(imgs, caps, caplens, decoder, loss_fn, word_map)    # Update model parameters
                 print_loss_total += loss
                 plot_loss_total += loss
         
