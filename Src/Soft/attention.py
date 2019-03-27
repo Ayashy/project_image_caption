@@ -12,7 +12,7 @@ class Attention(nn.Module):
     Then outputs the features*weights , weights.
     """
 
-    def __init__(self, lstm_len, attention_len, features_len=512):
+    def __init__(self, lstm_len, nb_annot_vec=256, annot_vec_len=512):
         """
         Params:
             - features_len : size of the images feature vector we're using 512
@@ -22,13 +22,14 @@ class Attention(nn.Module):
         super(Attention, self).__init__()
 
         # Simple linear layer to project the encoder features
-        self.image_layer = nn.Linear(features_len, 1, bias=False) 
+        self.image_layer = nn.Linear(annot_vec_len, 1, bias=False) 
         # Simple linear layer to project the hidden state 
-        self.hidden_layer = nn.Linear(lstm_len, 1, bias=False)  
+        self.hidden_layer = nn.Linear(lstm_len, nb_annot_vec, bias=False)  
         # A Tanh layer
         self.tanh = nn.Tanh()
-        # Simple linear layer to merge the two vectors
-        self.merge_layer = nn.Linear(attention_len, 1)  
+        
+        self.second_layer = nn.Linear(nb_annot_vec, nb_annot_vec, bias=False)
+        
         # Softmax layer to compure weights
         self.softmax = nn.Softmax(dim=1)  
 
@@ -47,15 +48,20 @@ class Attention(nn.Module):
             - attention_weights : weights computed with softmax (batchsize,nb_image_sections=14*14)
         """
         
-        ''' >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-        DO SOME BMM (batch matrix products) to multiply "image_layer" with each of 196 annotation vectors 
-        >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> '''
-        features = self.image_layer(image_features)  
-        hidden = self.hidden_layer(hidden_state)  
-        merged = features + hidden.unsqueeze(1)
+        batch_size, features_len = image_features.size(0), image_features.size(2)
+        flatten_features = image_features.view(batch_size,-1,features_len)   # batch_size x (16x16) x 512
+        features = self.image_layer(flatten_features).squeeze(2)             # batch_size x (16x16)
+        
+        hidden = self.hidden_layer(hidden_state)                             # batch_size x (16x16)
+        
+        merged = features + hidden
         tanh = self.tanh(merged)
-        attention_weights = self.softmax(tanh).squeeze(2) 
-        attention_features = (image_features * attention_weights.unsqueeze(2)).sum(dim=1) 
 
+        combined = self.second_layer(tanh)
+        tanh = self.tanh(combined)
+        
+        attention_weights = self.softmax(tanh)                               # batch_size x (16x16)
+        attention_features = (image_features * attention_weights.unsqueeze(2)).sum(dim=1)  # Sum over spatial dimension
+                                                                             # batch_size x 512 
         return attention_features, attention_weights
 

@@ -17,7 +17,7 @@ class Decoder(nn.Module):
     it's based on an lstm and uses attention.
     """
 
-    def __init__(self, attention_len, embedding_len, lstm_len, wordmap_len, initSize, nb_annot_vec=196, annot_vec_len=512):
+    def __init__(self, embedding_len, lstm_len, wordmap_len, initSize, nb_annot_vec=196, annot_vec_len=512, dropout_p=0.1):
         """
         Params:
             - attention_len: size of attention network
@@ -29,26 +29,26 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
 
         self.lstm_len = lstm_len
-        self.attention_len  = attention_len
         self.embedding_len  = embedding_len
         self.nb_annot_vec   = nb_annot_vec
         self.annot_vec_len  = annot_vec_len
         self.wordmap_len    = wordmap_len
         self.initSize = initSize
+        self.dropout_p = dropout_p
         
         # Hidden and context vector initialization MLP (multi-layers perceptrons)
         self.init_h_MLP = nn.Sequential(nn.Linear(annot_vec_len, initSize), nn.Linear(initSize,lstm_len))
         self.init_c_MLP = nn.Sequential(nn.Linear(annot_vec_len, initSize), nn.Linear(initSize,lstm_len))
 
         # Our attention model
-        self.attention = Attention(lstm_len, annot_vec_len, attention_len)
+        self.attention = Attention(lstm_len, nb_annot_vec, annot_vec_len)
         # Embedding model, it transforms each word vector into an embedding vector
         self.embedding = nn.Embedding(wordmap_len, embedding_len)  
         # LSTM model. We use LSTMCell and implement the loop manualy to use attention
-        self.lstm = nn.LSTMCell(embedding_len + lstm_len, lstm_len, bias=True) 
+        self.lstm = nn.LSTMCell(embedding_len + annot_vec_len, lstm_len, bias=True) 
         # A simple linear layer to compute the vocabulary scores from the hidden state
         self.scoring_layer = nn.Linear(lstm_len, wordmap_len)
-        '''self.dropout = nn.Dropout(self.dropout_p)'''
+        self.drop_out = nn.Dropout(self.dropout_p)
         
     def init_hidden_state(self, image_features, device):
         """
@@ -95,7 +95,7 @@ class Decoder(nn.Module):
         """
         batch_size = image_features.size(0)
         # Flatten image 14*14 -> 196
-        features = image_features.view(batch_size, -1, self.lstm_len)
+        features = image_features.view(batch_size, -1, self.annot_vec_len)
                
         # At the moment t we only decode the sentences that haven't reached <end>, so the K first sentences
         # Since they are sorted by lenght we can just use [:K]     
@@ -103,15 +103,16 @@ class Decoder(nn.Module):
         new_h, new_c = h.clone(), c.clone()
         
         # We first generate the attention weighted images. Alpha is the weights of the attention model.
-        embeddings = self.embedding(input_word)  
-        attention_encoding, weights = self.attention(features, h)
+        embeddings = self.embedding(input_word) 
 
+        attention_encoding, weights = self.attention(features, h)
+ 
         # Concatenate Previous word + features
         lstm_input = torch.cat([embeddings, attention_encoding], dim=1) 
         
         # We run the LSTM cell using the decode imput and (hidden,cell) states
         new_h, new_c = self.lstm(lstm_input, (h,c)) 
-
+        new_h, new_c = self.drop_out(new_h), self.drop_out(new_c)
         # The hidden state is transformed into vocabulary scores by a simple linear layer
         scores = self.scoring_layer(new_h)  # (k, wordmap_len)
         output_word = scores.argmax(dim=1) 
@@ -125,7 +126,7 @@ class Decoder(nn.Module):
 def decode(decoder, image_features, caps, caplens, max_cap_len, word_map, teacher_forcing, training = True):
     if training:
         batch_size = image_features.size(0)
-        nb_annotation_vec = image_features.view(batch_size, -1, decoder.lstm_len).size(1)
+        nb_annotation_vec = image_features.view(batch_size, -1, decoder.annot_vec_len).size(1)
         
         EOS_token = word_map['<end>']
         SOS_token = word_map['<start>']
@@ -144,7 +145,6 @@ def decode(decoder, image_features, caps, caplens, max_cap_len, word_map, teache
         if not teacher_forcing:
             for t in range(1,max_cap_len + 1):
                 score, word, h, c, weights = decoder(image_features, output_word, h, c)
-   
                 # Update score and attention_weight values at time t
                 scores[:,t,:] = score.clone()
                 attn_weights[:,t,:] = weights.clone()
@@ -171,8 +171,7 @@ def decode(decoder, image_features, caps, caplens, max_cap_len, word_map, teache
     else:   # Not training
         with torch.no_grad():
             batch_size = image_features.size(0)
-            nb_annotation_vec = image_features.view(batch_size, -1, decoder.lstm_len).size(1)
-            
+            nb_annotation_vec = image_features.view(batch_size, -1, decoder.annot_vec_len).size(1)
             EOS_token = word_map['<end>']
             SOS_token = word_map['<start>']
             output_word = decoder.initCaption(SOS_token, batch_size)
@@ -189,7 +188,6 @@ def decode(decoder, image_features, caps, caplens, max_cap_len, word_map, teache
             # then generate a new word in the decoder with the previous word and the attention weighted encoding
             for t in range(1,max_cap_len + 1):
                 score, word, h, c, weights = decoder(image_features, output_word, h, c)
-   
                 # Update score and attention_weight values at time t
                 scores[:,t,:] = score.clone()
                 attn_weights[:,t,:] = weights.clone()

@@ -1,18 +1,19 @@
 import torch
 from torch.utils.data import Dataset
 import json
-import os
+
 
 class FlickrDataset(Dataset):
     """
     Helper class to load up the data.
     """
 
-    def __init__(self,data_folder,split,caps_per_img):
+    def __init__(self,data_folder,split,caps_per_img,max_cap_len=20):
 
         self.split = split
-        self.data_folder=data_folder
-        self.caps_per_img=caps_per_img
+        self.data_folder    = data_folder
+        self.caps_per_img   = caps_per_img
+        self.max_cap_len    = max_cap_len
 
         # Load captions
         #with open(os.path.join(data_folder, self.split + '_CAPTIONS.json'), 'r') as j:
@@ -40,3 +41,13 @@ class FlickrDataset(Dataset):
     def __len__(self):
         return self.dataset_size
 
+
+def tens_to_word(caps, caplens, word_map):
+    caption=''
+
+    for line in caps[0, 1:caplens[0]+1]:
+        for key in word_map.keys():
+            if word_map[key]==line:
+                caption += ' ' + str(key)
+
+    return caption

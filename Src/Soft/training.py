@@ -28,12 +28,13 @@ class Trainer:
                     plot_losses     history of training loss
                     optimizer       decoder model optimizer, to resume training later
     '''
-    def __init__(self, device, learning_rate, decoder, teacher_forcing_ratio=0.5):
+    def __init__(self, device, learning_rate, decoder, teacher_forcing_ratio=0.5, dropout=0.1):
         self.device = device
         self.learning_rate = learning_rate
         self.plot_losses = []
         self.decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate)
         self.teacher_forcing_ratio = teacher_forcing_ratio
+        self.dropout = dropout
         self.epoch = 1
 
     ''' Performs an update of the model (decoder) parameters for a given input batch
@@ -49,8 +50,7 @@ class Trainer:
     def iter_training(self, imgs, caps, caplens, decoder, loss_fn, word_map):
         max_cap_len = 20  
         
-        decoder_optimizer = self.decoder_optimizer 
-        decoder_optimizer.zero_grad()
+        self.decoder_optimizer.zero_grad()
         
         teacher_forcing = True if random.random() < self.teacher_forcing_ratio else False
         total_loss = 0.
@@ -70,6 +70,7 @@ class Trainer:
             if teacher_forcing:
                 output_word = caps[:,t-1].squeeze()            
             score, word, h, c, weights = decoder(imgs, output_word, h, c)
+
             target = caps[:,t]
             
             loss = loss_fn(score, target)
@@ -77,14 +78,12 @@ class Trainer:
             loss.backward(retain_graph=True)
         
         total_loss.backward()
-        decoder_optimizer.step()
+        self.decoder_optimizer.step()
         
-        decoder_optimizer.zero_grad()
+        self.decoder_optimizer.zero_grad()
         del imgs, caps, caplens, decode_lengths
         torch.cuda.empty_cache()
-        
-        self.decoder_optimizer = decoder_optimizer
-    
+            
         return total_loss.item()
 
     ''' Performs model training
@@ -112,6 +111,7 @@ class Trainer:
         for g in self.decoder_optimizer.param_groups:
             g['lr'] = self.learning_rate
             
+        decoder.dropout_p = self.dropout
         decoder  = decoder.to(self.device)      # Pass model to device (GPU is available)
     
         for n_iter in range(max_iter):
@@ -150,7 +150,8 @@ class Trainer:
                     break
     
         decoder = decoder.cpu()
-    
+        decoder.dropout_p = 0.
+        
         self.epoch = epoch
         showPlot(self.plot_losses)      # Print training loss history
 

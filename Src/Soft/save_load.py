@@ -11,8 +11,8 @@ from torch import optim
 
 from training import Trainer
 
-def save_decoder(idx, decoder):
-    return 0
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda:0" if use_cuda else "cpu")
 
 def save_all(idx, decoder, trainer):
     # Saving torch decoder and optimizer
@@ -62,3 +62,9 @@ def load_all(idx, decoder):
     trainer.epoch = epoch
     
     return trainer
+
+
+def load_graph(idx):
+    plot_losses = np.loadtxt('./models/loss' + str(idx) + '.out')
+    plot_losses = [loss for loss in plot_losses]
+    return plot_losses

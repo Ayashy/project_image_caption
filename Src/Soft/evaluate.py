@@ -8,6 +8,13 @@ Created on Sat Jan 26 15:24:05 2019
 import numpy as np
 import torch
 from torch.utils import data
+import PIL
+from PIL import ImageFilter
+import matplotlib.pyplot as plt
+import torchvision.transforms as transforms
+
+import cv2 as cv
+import skimage
 
 from nltk.translate.bleu_score import sentence_bleu
 from nltk.translate.bleu_score import corpus_bleu
@@ -34,11 +41,12 @@ def predict(decoder, img, caps, caplens, word_map, teacher_forcing=False):
     with torch.no_grad():
         scores, caps, caplens, decode_lengths, attn_weights = decode(decoder, img, caps, 
                                                                      caplens, 20, word_map, teacher_forcing, False)
-
+        attn_weights = attn_weights.squeeze(0).cpu()
+        
         prediction=''
         isEnded = False
         for line in scores[0]:
-            idx=line.argmax()
+            idx=line.argmax().item()
             for key in word_map.keys():
                 if word_map[key]==idx:
                     next_word = str(key)
@@ -50,16 +58,17 @@ def predict(decoder, img, caps, caplens, word_map, teacher_forcing=False):
                         else:
                             isEnded = True
                     elif next_word == '<unk>': # Look for the 2nd highest word
-                        idx = torch.sort(line)[1]
+                        _, sorted_idx = torch.sort(line)
+                        idx = sorted_idx[1].item()
                         for key in word_map.keys():
                             if word_map[key]==idx:
                                 next_word = str(key)
                                 
                     prediction += ' ' + next_word
-
+                
         caption = tens_to_word(caps, caplens, word_map)      
             
-        return prediction, caption
+        return prediction, caption, attn_weights
     
 
 ''' Randomly select a few images, and compare predicted caption to references caption
@@ -69,13 +78,20 @@ def predict(decoder, img, caps, caplens, word_map, teacher_forcing=False):
                     
         output:     print prediction and references.
 '''
-def evaluateRandomly(_dataset, decoder, word_map, n=10, teacher_forcing=False):
+def evaluateRandomly(_dataset, decoder, word_map, n=10, visualize=False):
     caps_per_img = _dataset.caps_per_img
     decoder = decoder.to(device)
     img_indexes = np.random.randint(0, len(_dataset)//caps_per_img, n)
     
     for img_idx in img_indexes:
         print('\nImage n° ', str(img_idx), 'captions :')
+        if visualize:
+            ID = list(_dataset.captions.keys())[img_idx]
+            original_img = PIL.Image.open('./raw_data/Flickr8k_data/'+ID+'.jpg')
+            plt.title('original image')
+            plt.axis('off')
+            plt.imshow(original_img)
+            
         for cap_idx in range(caps_per_img):
             idx = img_idx*caps_per_img + cap_idx
             img, caps, caplens = _dataset[idx]
@@ -83,72 +99,45 @@ def evaluateRandomly(_dataset, decoder, word_map, n=10, teacher_forcing=False):
             caption = tens_to_word(caps, caplens, word_map)        
             print('>', caption)
             
-        prediction, caption = predict(decoder, img, caps, caplens, word_map, teacher_forcing)
+        if visualize:
+            image_to_tens = transforms.ToTensor()
+            
+            prediction, caption, attn_weights = predict(decoder, img, caps, caplens, word_map, False)
+            words = prediction.split(' ')
+            feature_map_size = int(np.sqrt(attn_weights.size(1)))  # Dimension of map : should be 16=sqrt(16x16)
+            for i in range(2,len(words)):
+                if (words[i]=='<end>'):
+                    break
+                
+                plt.figure()                # To plot the attention weights on the original image
+                plt.title(words[i])         # Word predicted for this attention weights
+                plt.axis('off')
+
+                original_img_tens = image_to_tens(original_img)                # Original image as a tensor
+                H, W = original_img_tens.size(1), original_img_tens.size(2)  # Dimension of the original image
+                
+                attn_tens = attn_weights[i].view(1,feature_map_size,-1)
+                attn_tens = torch.cat([attn_tens,attn_tens,attn_tens],dim=0) # 1 channel to RGB channel
+
+                attn_img = np.array(attn_tens.permute(1,2,0))
+                attn_img = skimage.transform.pyramid_expand(attn_img,upscale=16,sigma=20,multichannel=True)
+                plt.imshow(np.array(original_img_tens.permute(1,2,0)))
+                plt.imshow(100*cv.resize(attn_img,(W,H)),alpha=0.8)
+
+
+        else:
+            prediction, caption, _ = predict(decoder, img, caps, caplens, word_map, False)
         print('Predicted : ', prediction)
+        plt.show()
         
     decoder = decoder.cpu()
      
 
+
+
 def beam_search():
     return 0
 
-     
-''' Compute BLEU score (without beam search)
-        input :     _dataset        FlickrDataset (training, validation or test)
-                    decoder         Decoder model
-                    BLEU_idx        idx of the BLEU score : BLEU-1, BLEU-2, BLEU-3, BLEU-4
-                                    default is cumulative BLEU-4 score
-                    
-        output:     BLEU            BLEU score on the dataset
-'''   
-'''
-def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
-    BLEU = 0.
-    
-    caps_per_img = _dataset.caps_per_img
-    decoder = decoder.to(device)
-    
-    for img_idx in range(len(_dataset)//caps_per_img):
-        if img_idx % 100 == 0:
-            print('evaluating ', str(img_idx), 'th image')
-        ref = [[]]
-        for cap_idx in range(caps_per_img):
-            idx = img_idx*caps_per_img + cap_idx
-            img, caps, caplens = _dataset[idx]
-            
-            img, caps, caplens = img.unsqueeze(0), caps.unsqueeze(0), caplens.unsqueeze(0)
-            caption = print_caption(caps, caplens, word_map)            
-            ref.append(caption.split(' '))
-            
-        prediction, caption = predict(decoder, img, caps, caplens, word_map)
-        pred = prediction.split(' ')
-        
-        if BLEU_idx == 0:   # Cumulated 4-gram BLEU score
-            BLEU += sentence_bleu(ref, pred)      # Score = average of every sentence
-            
-        elif BLEU_idx == 1: # BLEU-1
-            BLEU += sentence_bleu(ref, pred, weights=(1,0,0,0))      
-            
-        elif BLEU_idx == 1: # BLEU-2
-            BLEU += sentence_bleu(ref, pred, weights=(0,1,0,0))      
-            
-        elif BLEU_idx == 1: # BLEU-3
-            BLEU += sentence_bleu(ref, pred, weights=(0,0,1,0))      
-            
-        elif BLEU_idx == 1: # BLEU-4
-            BLEU += sentence_bleu(ref, pred, weights=(0,0,0,1))      
-            
-    BLEU /= (len(_dataset) + 1e-19)
-    
-    if BLEU_idx == 0:
-        bleu_str = ''
-    else:
-        bleu_str = '-' + str(BLEU_idx)
-        
-    print ('\nBLEU' + bleu_str + ' score : ', str(BLEU))
- 
-    return BLEU
-'''
     
 def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
     print('\nComputing BLEU score ...')
@@ -199,13 +188,13 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
     elif BLEU_idx == 1: # BLEU-1
         BLEU += corpus_bleu(refs, preds, weights=(1,0,0,0))      
         
-    elif BLEU_idx == 1: # BLEU-2
+    elif BLEU_idx == 2: # BLEU-2
         BLEU += corpus_bleu(refs, preds, weights=(.5,.5,0,0))      
         
-    elif BLEU_idx == 1: # BLEU-3
+    elif BLEU_idx == 3: # BLEU-3
         BLEU += corpus_bleu(refs, preds, weights=(.33,.33,.33,0))      
         
-    elif BLEU_idx == 1: # BLEU-4
+    elif BLEU_idx == 4: # BLEU-4
         BLEU += corpus_bleu(refs, preds, weights=(.25,.25,.25,.25))      
                 
     #BLEU /= (len(img_subset) + 1e-19)     # Different from len(_dataset) !!
@@ -217,7 +206,7 @@ def computeBLEU(_dataset, decoder, word_map, BLEU_idx = 0):
         
     print ('\nBLEU' + bleu_str + ' score : ', str(BLEU))
  
-    return refs, preds, BLEU   
+    return BLEU   
     
     
     
