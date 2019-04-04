@@ -92,7 +92,7 @@ class CocoDataset(Dataset):
             # For validation of testing, also return all 'captions_per_image' captions to find BLEU-4 score
             all_captions = torch.LongTensor(
                 self.captions[((i // self.cpi) * self.cpi):(((i // self.cpi) * self.cpi) + self.cpi)])
-            return img, caption, caplen
+            return img, caption, caplen, all_captions
 
     def __len__(self):
         return self.dataset_size

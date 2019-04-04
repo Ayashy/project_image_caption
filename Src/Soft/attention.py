@@ -19,18 +19,13 @@ class Attention(nn.Module):
             - lstm_len : size of the lstm network (it's the size of the hidden and cell states also)
             - attention_len : size of the attention network (Not sure how it affects the learning yet)
         """
-        super(Attention, self).__init__()
+        super(Attention, self).__init__() 
 
-        # Simple linear layer to project the encoder features
-        self.image_layer = nn.Linear(features_len, 1) 
-        # Simple linear layer to project the hidden state 
-        self.hidden_layer = nn.Linear(lstm_len, 1)  
-        # A Tanh layer
-        self.tanh = nn.Tanh()
-        # Simple linear layer to merge the two vectors
-        self.merge_layer = nn.Linear(attention_len, 1)  
-        # Softmax layer to compure weights
-        self.softmax = nn.Softmax(dim=1)  
+        self.encoder_att = nn.Linear(features_len, attention_len)  # linear layer to transform encoded image
+        self.decoder_att = nn.Linear(lstm_len, attention_len)  # linear layer to transform decoder's output
+        self.full_att = nn.Linear(attention_len, 1)  # linear layer to calculate values to be softmax-ed
+        self.relu = nn.ReLU()
+        self.softmax = nn.Softmax(dim=1)  # softmax layer to calculate weights
 
     def forward(self, image_features, hidden_state): 
         """
@@ -46,12 +41,12 @@ class Attention(nn.Module):
             - attention_features : weights*features (batchsize,lstm_len)
             - attention_weights : weights computed with softmax (batchsize,nb_image_sections=14*14)
         """
-        features = self.image_layer(image_features)  
-        hidden = self.hidden_layer(hidden_state)  
-        merged = features + hidden.unsqueeze(1)
-        tanh = self.tanh(merged)
-        attention_weights = self.softmax(tanh).squeeze(2) 
-        attention_features = (image_features * attention_weights.unsqueeze(2)).sum(dim=1) 
 
-        return attention_features, attention_weights
+        att1 = self.encoder_att(image_features)  # (batch_size, num_pixels, attention_dim)
+        att2 = self.decoder_att(hidden_state)  # (batch_size, attention_dim)
+        att = self.full_att(self.relu(att1 + att2.unsqueeze(1))).squeeze(2)  # (batch_size, num_pixels)
+        alpha = self.softmax(att)  # (batch_size, num_pixels)
+        attention_weighted_encoding = (image_features * alpha.unsqueeze(2)).sum(dim=1)  # (batch_size, encoder_dim)
+
+        return attention_weighted_encoding, alpha
 

@@ -12,3 +12,29 @@
 
 - It is recommanded by the authors for some reason?!
 - Its a sigmoid(linear(Ht-1))*attention_encodings
+
+
+
+
+############
+
+Teacher forcing :
+- Percentage 30%
+- Use max score from previous
+
+Dropout :
+- Only if overfitting
+- we'll see
+
+Attention : 
+- test without
+- 15% gains
+
+Validation :
+- Learning rate
+
+Embedding:
+- min freq 3?
+- use end of sentence
+
+Visdom?

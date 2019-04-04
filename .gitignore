@@ -41,4 +41,4 @@ Thumbs.db
 ##############
 src/Soft/raw_data
 src/Soft/processed_data
-__pycache__/
+src/Soft/__pycache__/

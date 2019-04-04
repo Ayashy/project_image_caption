@@ -52,6 +52,8 @@ class Decoder(nn.Module):
         self.f_beta = nn.Linear(lstm_len, features_len)
         self.sigmoid = nn.Sigmoid()
 
+        self.fine_tune_embeddings(True)
+
     def init_hidden_state(self, image_features, device):
         """
         Initialize the hidden state and cell state for each sentence.
@@ -79,7 +81,7 @@ class Decoder(nn.Module):
         for p in self.embedding.parameters():
             p.requires_grad = fine_tune
             
-    def forward(self, image_features, caps, caplens):
+    def forward(self, image_features, caps, caplens, forcing=0.3):
         """
         Forward propagation.
 
@@ -115,7 +117,7 @@ class Decoder(nn.Module):
 
         # We won't decode at the <end> position, since we've finished generating as soon as we generate <end>
         # So, decoding lengths are actual lengths - 1
-        decode_lengths = (caplens - 1).tolist()
+        decode_lengths = (caplens+1).tolist()
 
         # Result tensors
         scores = torch.zeros(batch_size, max(decode_lengths),
@@ -128,27 +130,36 @@ class Decoder(nn.Module):
         # then generate a new word in the decoder with the previous word and the attention weighted encoding
         for t in range(max(decode_lengths)):
 
+            # The last word generated
+            previous_words=None
             # At the moment t we only decode the sentences that haven't reached <end>, so the K first sentences
             # Since they are sorted by lenght we can just use [:K]
             k = sum([l > t for l in decode_lengths])
+
+            if t==0:
+                previous_words=embeddings[:k, 0, :]
+            elif  torch.rand(1)<forcing:
+                previous_words=embeddings[:k, t-1, :]
+            else:
+                previous_words=self.embedding(torch.argmax(scores[:k, t-1],dim=1))
+
 
             # We first generate the attention weighted images. Alpha is the weights of the attention model.
             attention_encoding, alpha = self.attention(
                 image_features[:k], h[:k])
 
-            # This gating scalar is supposed to improve learning
-            gate = self.sigmoid(self.f_beta(h[:k]))  # gating scalar, (batch_size_t, encoder_dim)
-            attention_encoding = gate * attention_encoding
+            #gate = self.sigmoid(self.f_beta(h[:k]))  # gating scalar, (batch_size_t, encoder_dim)
+            #attention_encoding = gate * attention_encoding
 
             # Concatenate Previous word + features
             decode_input = torch.cat(
-                [embeddings[:k, t, :], attention_encoding], dim=1)
+                [previous_words, attention_encoding], dim=1)
 
             # We run the LSTM cell using the decode imput and (hidden,cell) states
             h, c = self.lstm(decode_input, (h[:k], c[:k]))
 
             # The hidden state is transformed into vocabulary scores by a simple linear layer
-            score = self.scoring_layer(self.dropout(h) )  # (k, wordmap_len)
+            score = self.scoring_layer(h)  # (k, wordmap_len)
 
             # Finaly we store the scores and weights
             scores[:k, t, :] = score

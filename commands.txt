@@ -1,0 +1,21 @@
+
+# PREPROCESS FLICKR
+
+ipython run.py -- --task predict --img raw_data/flickr_data/1002674143_1b742ab4b8.jpg  --checkpoint checkpoints/flickr_please_noforcing_checkpoint_flickr.pth.tar --word_map processed_data/flickr/WORDMAP.json
+
+# TRAINING FLICKR_DEV
+
+ipython run.py -- --task evaluate --dataset flickr  --checkpoint checkpoints/flickr_tuning_att_noforcing_checkpoint_flickr.pth.tar --word_map processed_data/flickr/WORDMAP.json
+
+# TRAINING FLICKR_DEV
+
+ipython run.py  -- -task preprocess --dataset flickr --target temp
+
+# TRAINING FLICKR_DEV
+
+ipython run.py  -- -task train --dataset flickr --taskName flickr_testing
+
+# PREDICTS
+
+ipython predict.py -- --model soft22.pt --word_map WORDMAP.json --img 1248940539_46d33ed487.jpg 
+
