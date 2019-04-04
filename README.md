@@ -14,19 +14,71 @@ Src             : Contains the main project files
 Tutorials       : Exemple projects used to practice the concepts used in the project
 ```
 
+```
+Soft            
+|_ attention                    : implements the attention model
+|_ decoder                      : implements the decoder model
+|_ encoder                      : implements the encoder model
+|_ datasets                     : utility classes for loading data
+|_ preprocess                   : source code to generate processed files from raw data
+|_ train                        : source code to launch training
+|_ predict                      : source code to predict the caption of an image using beam search
+|_ evaluate                     : source code to evaluate a model using beam search
+|_ run                          : main script to launch various program tasks
+```
+
 ### Data folders
 
 The data must be stored according to this structure in order for the data processing functions to run
 
 ```
 Soft            
-|_ raw_data             : Contains the flikr datafiles
-    |_ Flickr8k_data    : Put the jpg images here
-    |_ Flickr8k_text    : Put the caption text files here
-|_ processed_data       : Generated input files will be stored in this folder
-    |_ eval_images      : Validation image features
-    |_ test_images      : Test image features
-    |_ train_images     : Train image features
+|_ raw_data                     : Contains the flikr datafiles
+    |_ flickr_data              : Put the jpg images here
+    |_ flickr_text              : Put the caption text files here
+    |_ coco_data                : Same of coco images
+    |_ coco_text                : same for coco text files
+|_ processed_data               : Generated input files will be stored in this folder
+    |_ coco                     : hold coco data
+        |_ eval_images          : Validation image features
+        |_ test_images          : Test image features
+        |_ train_images         : Train image features
+        |_ ...                  : Other files
+    |_ flickr                   : hold flickr data
+        |_ ...                  : Same structure
+```
+
+# User guide
+
+This repo implements a command line tool to preproccess, train and evaluate an image caption model. The tool can be executed using the run.py script, using various commands.
+
+### Preprocessing
+
+You need to make sure that the raw_data files are downloaded and put in the correct directories (see project structure above). Use the folowing links to download the flickr and coco datasets. 
+
+* Coco :        http://cocodataset.org/#download
+* Flickr8k :    https://forms.illinois.edu/sec/1713398
+
+Then you can use this command to launch the preprocessing. Use python ```run.py --help``` for more information :
+
+```
+ipython run.py  -- -task preprocess --dataset flickr --target temp
+```
+
+### Training
+
+You can choose to train on either dataset, and you can use a checkpoint to continue training if you wish. In order to change training parameters, you need to edit the train.py directory. Use python ```run.py --help``` for more information :
+
+```
+ipython run.py  -- -task train --dataset flickr --taskName flickr_testing --checkpoint checkpoint/flickr_checkpoint_flickr
+```
+
+### Predicting
+
+This allows you to generate a picture with the generated caption, as well as a vizualisation of the attention result, from a source image. Use python ```run.py --help``` for more information :
+
+```
+ipython run.py -- --task predict --img raw_data/flickr_data/1002674143_1b742ab4b8.jpg  --checkpoint checkpoints/flickr_checkpoint_flickr.pth.tar --word_map processed_data/flickr/WORDMAP.json
 ```
 
 
